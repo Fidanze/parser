@@ -1,2 +1,4 @@
 /parser_env
 chromedriver.exe
+/.vscode
+/.mypy_cache
