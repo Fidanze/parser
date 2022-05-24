@@ -1,14 +1,12 @@
-from itertools import cycle
-from selenium import webdriver
-from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
-
-import json
-
-from concurrent.futures import ThreadPoolExecutor
-import os
 import time
+import os
+from concurrent.futures import ThreadPoolExecutor
+import json
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.wait import WebDriverWait
+from selenium import webdriver
+from queue import Queue
 
 
 def timing_val(func):
@@ -57,40 +55,50 @@ def get_urls(main_url):
     return urls
 
 
-def parse_data(driver, url):
+def parse_data():
+    driver = apps_queue.get()
     wait = WebDriverWait(driver, 7)
     driver.maximize_window()
-    driver.get(url)
+    while True:
+        url = urls.pop() if len(urls) else None
+        if url is None:
+            driver.close()
+            break
+        driver.get(url)
 
-    data_from_elem = {'ulr': url.removesuffix('characteristics/'), 'price': wait.until(EC.visibility_of_all_elements_located((
-        By.CLASS_NAME, 'product-buy__price')))[0].text}
+        data_from_elem = {'ulr': url.removesuffix('characteristics/'), 'price': wait.until(EC.visibility_of_all_elements_located((
+            By.CLASS_NAME, 'product-buy__price')))[0].text}
 
-    options = wait.until(EC.visibility_of_all_elements_located(
-        (By.CLASS_NAME, 'product-characteristics__spec')))
+        options = wait.until(EC.visibility_of_all_elements_located(
+            (By.CLASS_NAME, 'product-characteristics__spec')))
 
-    for option in options:
-        name = option.find_element(
-            by=By.CLASS_NAME, value='product-characteristics__spec-title').text
-        value = option.find_element(
-            by=By.CLASS_NAME, value='product-characteristics__spec-value').text
-        data_from_elem[name] = value
+        for option in options:
+            name = option.find_element(
+                by=By.CLASS_NAME, value='product-characteristics__spec-title').text
+            value = option.find_element(
+                by=By.CLASS_NAME, value='product-characteristics__spec-value').text
+            data_from_elem[name] = value
 
-    with open('result.json', 'a', encoding='utf-8') as f:
-        json.dump(data_from_elem, f, ensure_ascii=False, indent=4)
+        with open('result.json', 'a', encoding='utf-8') as f:
+            json.dump(data_from_elem, f, ensure_ascii=False, indent=4)
 
-
-@timing_val
-def main():
-    urls = get_urls(
-        "https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/")
-
-    thread_count = 12  # int(os.environ['NUMBER_OF_PROCESSORS'])
-    apps = [get_driver() for _ in range(thread_count)]
-    print(len(urls))
-    with ThreadPoolExecutor(max_workers=thread_count) as executor:
-        executor.map(parse_data, cycle(apps), urls)
-    [app.close() for app in apps]
+        yield
 
 
-if __name__ == '__main__':
-    main()
+def gen_next(gen):
+    while True:
+        try:
+            next(gen)
+        except StopIteration:
+            break
+
+
+THREAD_COUNT = int(os.environ['NUMBER_OF_PROCESSORS'])
+apps_queue: Queue = Queue(THREAD_COUNT)
+urls = get_urls(
+    'https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/')
+for _ in range(THREAD_COUNT):
+    apps_queue.put(get_driver())
+gens = [parse_data() for _ in range(THREAD_COUNT)]
+with ThreadPoolExecutor(THREAD_COUNT) as executor:
+    executor.map(gen_next, gens)
