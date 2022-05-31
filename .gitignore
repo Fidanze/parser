@@ -2,4 +2,5 @@
 chromedriver.exe
 /.vscode
 /.mypy_cache
-result.txt
+result.*
+.dmypy.json
