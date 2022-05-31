@@ -9,15 +9,6 @@ from selenium import webdriver
 from queue import Queue
 
 
-def timing_val(func):
-    def wrapper(*arg, **kw):
-        t1 = time.time()
-        func(*arg, **kw)
-        t2 = time.time()
-        print(t2-t1)
-    return wrapper
-
-
 def get_driver():
     chrome_options = webdriver.ChromeOptions()
     chrome_options.add_argument('--ignore-certificate-errors-spki-list')
@@ -93,6 +84,7 @@ def gen_next(gen):
             break
 
 
+t1 = time.time()
 THREAD_COUNT = int(os.environ['NUMBER_OF_PROCESSORS'])
 apps_queue: Queue = Queue(THREAD_COUNT)
 urls = get_urls(
@@ -102,3 +94,6 @@ for _ in range(THREAD_COUNT):
 gens = [parse_data() for _ in range(THREAD_COUNT)]
 with ThreadPoolExecutor(THREAD_COUNT) as executor:
     executor.map(gen_next, gens)
+
+t2 = time.time()
+print(t2-t1)
