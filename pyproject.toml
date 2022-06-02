@@ -10,6 +10,7 @@ selenium = "^4.2.0"
 
 [tool.poetry.dev-dependencies]
 mypy = "^0.960"
+autopep8 = "^1.6.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
