@@ -4,3 +4,4 @@ chromedriver.exe
 /.mypy_cache
 result.*
 .dmypy.json
+test.py
