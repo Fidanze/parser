@@ -2,100 +2,58 @@ import time
 import os
 from concurrent.futures import ThreadPoolExecutor
 import json
+from typing import List
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.wait import WebDriverWait
-from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException
-from queue import Queue
+
+from WindowsPool import WindowsPool
 
 
-def get_driver():
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument('--ignore-certificate-errors-spki-list')
-    chrome_options.add_argument("--incognito")
-    chrome_options.add_argument('log-level=3')
-
-    driver = webdriver.Chrome(options=chrome_options)
-    driver.maximize_window()
-
-    return driver
-
-
-def city_closure(current_city: str):
-    def set_city(wait):
-        button = wait.until(EC.presence_of_element_located(
-            (By.CLASS_NAME, "v-confirm-city__link")))
-        button.click()
-        city_search_input = wait.until(EC.visibility_of_element_located(
-            (By.CLASS_NAME, "base-ui-input-search__input")))
-        city_search_input.send_keys(current_city)
-        city_list = wait.until(EC.visibility_of_element_located(
-            (By.CLASS_NAME, "cities-search")))
-        while True:
-            try:
-                finded_cities = city_list.find_elements(
-                    By.CLASS_NAME, 'modal-row')
-                for city in finded_cities:
-                    f_span = city.find_element(By.TAG_NAME, 'span')
-                    s_span = f_span.find_element(By.TAG_NAME, 'spam')
-                    if s_span.text == current_city:
-                        s_span.click()
-                        break
-                else:
-                    raise NoSuchElementException
-                break
-            except NoSuchElementException:
-                city_search_input.send_keys(' ')
-
-    return set_city
-
-
-def get_urls(main_url):
-    nonlocal city_setter
-    driver = get_driver()
-    wait = WebDriverWait(driver, 10)
-    driver.get(main_url)
-    city_setter(wait)
+def get_city_urls(window, url: str) -> List[str]:
+    window.open(url)
     urls = []
 
     while True:
-        elems = wait.until(EC.presence_of_all_elements_located(
+        elems = window.wait.until(EC.presence_of_all_elements_located(
             (By.CLASS_NAME, "catalog-product__name")))
 
         urls.extend([elem.get_attribute('href') +
                     'characteristics/' for elem in elems])
 
-        next_page = wait.until(EC.visibility_of_element_located((
+        next_page = window.wait.until(EC.visibility_of_element_located((
             By.CLASS_NAME, 'pagination-widget__page-link_next')))
         if 'pagination-widget__page-link_disabled' in next_page.get_attribute("class"):
             break
         else:
-            driver.get(next_page.get_attribute('href'))
+            window.driver.get(next_page.get_attribute('href'))
 
-    driver.close()
     return urls
 
 
-def parse_data():
-    driver = apps_queue.get()
-    wait = WebDriverWait(driver, 7)
-    driver.maximize_window()
-    is_first_url = True
+def gen_next(gen):
+    result = []
     while True:
-        url = urls.pop() if len(urls) else None
-        if url is None:
-            driver.close()
+        try:
+            result.append(next(gen))
+        except StopIteration:
             break
-        driver.get(url)
-        if is_first_url:
-            city_setter(wait)
-            is_first_url = False
+    return result
 
-        data_from_elem = {'ulr': url.removesuffix('characteristics/'), 'price': wait.until(EC.visibility_of_all_elements_located((
+
+def parse_data(pool, urls: List[str]):
+    window = pool.pop_window()
+    while True:
+        if len(urls):
+            url = urls.pop()
+            window.open(url)
+        else:
+            pool.put_window(window)
+            break
+
+        data_from_elem = {'ulr': url.removesuffix('characteristics/'), 'price': window.wait.until(EC.visibility_of_all_elements_located((
             By.CLASS_NAME, 'product-buy__price')))[0].text}
 
-        options = wait.until(EC.visibility_of_all_elements_located(
+        options = window.wait.until(EC.visibility_of_all_elements_located(
             (By.CLASS_NAME, 'product-characteristics__spec')))
 
         for option in options:
@@ -108,34 +66,39 @@ def parse_data():
         yield data_from_elem
 
 
-def gen_next(gen):
-    while True:
-        try:
-            next(gen)
-        except StopIteration:
-            break
+def main():
+    folder_path = os.path.dirname(__file__)
+    url = 'https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/'
 
+    with open('cities.json', 'r', encoding='utf-8') as f:
+        cities = json.load(f)
 
-def parse_by_city(current_city):
-    city_setter = city_closure(current_city)
-    THREAD_COUNT = int(os.environ['NUMBER_OF_PROCESSORS'])//2
-    apps_queue: Queue = Queue(THREAD_COUNT)
-    urls = get_urls(
-        'https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/')
-    for _ in range(THREAD_COUNT):
-        apps_queue.put(get_driver())
-    gens = [parse_data() for _ in range(THREAD_COUNT)]
-    with ThreadPoolExecutor(THREAD_COUNT) as executor:
-        current_city_data = executor.map(gen_next, gens)
-    with open(f'./cities/{current_city}.json', 'w', encoding='utf-8') as f:
-        json.dump(current_city_data, f, ensure_ascii=False, indent=4)
+    pool = WindowsPool()
+    for city in cities:
+        t1 = time.time()
+        pool.set_city(city)
+        main_window = pool.pop_window()
+        urls = get_city_urls(main_window, url)
+        pool.put_window(main_window)
+
+        THREAD_COUNT = int(os.environ['NUMBER_OF_PROCESSORS'])
+        gens = [parse_data(pool, urls) for _ in range(THREAD_COUNT)]
+        with ThreadPoolExecutor(THREAD_COUNT) as executor:
+            city_data_generator = executor.map(gen_next, gens)
+        city_data = []
+        [city_data.extend(data) for data in city_data_generator]
+        city_file_path = os.path.join(
+            folder_path, f'cities\{city}.json')
+        with open(city_file_path, 'w', encoding='utf-8') as f:
+            json.dump(city_data, f, ensure_ascii=False, indent=4)
+        t2 = time.time()
+        print(f'{t2-t1} seconds for {city}')
+
+    del pool
 
 
 if __name__ == '__main__':
     t1 = time.time()
-    with open('cities.json', 'r', encoding='utf-8') as f:
-        cities = json.load(f)
-    for current_city in cities:
-        parse_by_city(current_city)
+    main()
     t2 = time.time()
     print(t2-t1)
