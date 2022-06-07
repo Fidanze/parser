@@ -22,17 +22,8 @@ class WindowsPool():
             pass
 
         window = Window()
-        window.set_city(self.city)
         self.windows.append(window)
         return window
 
     def put_window(self, window):
         self.free_windows.append(self.windows.index(window))
-
-    def set_city(self, city: str):
-        self.city = city
-        while len(self.free_windows) != len(self.windows):
-            pass
-
-        for window in self.windows:
-            window.set_city(self.city)
