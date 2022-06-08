@@ -1,11 +1,12 @@
 from distutils.errors import LibError
+import time
 from types import NoneType
 from typing import List
 from selenium import webdriver
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import ElementNotInteractableException, TimeoutException
 
 
 class Window():
@@ -26,20 +27,32 @@ class Window():
         self.driver.get(url)
 
     def open_place_menu(self):
-        button = self.wait.until(EC.presence_of_element_located(
+        button = self.wait.until(EC.visibility_of_element_located(
             (By.CLASS_NAME, "city-select__text")))
         button.click()
 
     def set_place(self, place: List[str]):
-        button = self.wait.until(EC.presence_of_element_located(
-            (By.CLASS_NAME, "city-select__text")))
-        button.click()
+        time.sleep(2)
+        while True:
+            try:
+                button = self.wait.until(EC.visibility_of_element_located(
+                    (By.CLASS_NAME, "city-select__text")))
+                button.click()
+                break
+            except ElementNotInteractableException:
+                pass
+
         columns = ('districts', 'regions', 'cities')
         for key, column in enumerate(columns):
             if self.place and self.place[key] == place[key]:
                 continue
-            column_elems = self.wait.until(EC.visibility_of_all_elements_located(
-                (By.CSS_SELECTOR, f'#select-city > div.lists-column > ul.{column} > li.modal-row')))
+            while True:
+                try:
+                    column_elems = self.wait.until(EC.visibility_of_all_elements_located(
+                        (By.CSS_SELECTOR, f'#select-city > div.lists-column > ul.{column} > li.modal-row')))
+                    break
+                except TimeoutException:
+                    pass
             for column_elem in column_elems:
                 if place[key] == column_elem.text:
                     column_elem.click()
