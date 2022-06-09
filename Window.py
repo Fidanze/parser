@@ -1,11 +1,8 @@
-from distutils.errors import LibError
-from types import NoneType
 from typing import List
 from selenium import webdriver
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
 
 class Window():
@@ -31,9 +28,10 @@ class Window():
         button.click()
 
     def set_place(self, place: List[str]):
-        button = self.wait.until(EC.presence_of_element_located(
+        button = self.wait.until(EC.visibility_of_element_located(
             (By.CLASS_NAME, "city-select__text")))
         button.click()
+
         columns = ('districts', 'regions', 'cities')
         for key, column in enumerate(columns):
             if self.place and self.place[key] == place[key]:

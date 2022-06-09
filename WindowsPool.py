@@ -14,16 +14,14 @@ class WindowsPool():
             window.close()
 
     def pop_window(self):
-        if len(self.free_windows):
-            key = self.free_windows.pop()
-            return self.windows[key]
-
-        while len(self.windows) == self.limit:
-            pass
-
-        window = Window()
-        self.windows.append(window)
-        return window
+        while True:
+            if len(self.free_windows):
+                key = self.free_windows.pop()
+                return self.windows[key]
+            if len(self.windows) < self.limit:
+                window = Window()
+                self.windows.append(window)
+                return window
 
     def put_window(self, window):
         self.free_windows.append(self.windows.index(window))
