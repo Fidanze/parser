@@ -7,9 +7,10 @@ from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from WindowsPool import WindowsPool
+from Window import Window
 
-URL = 'https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/'
 
+THREAD_COUNT = int(os.environ['NUMBER_OF_PROCESSORS'])
 
 def timing_val(func):
     def wrapper(*arg, **kw):
@@ -20,85 +21,72 @@ def timing_val(func):
         return res
     return wrapper
 
+def init_funcs(pool:WindowsPool):
+    def get_number_of_pages(url: str) -> int:
+        window = pool.pop_window()
+        window.open(url)
+        last_page_elem = window.wait.until(EC.visibility_of_element_located((By.CLASS_NAME, 'pagination-widget__page-link_last')))
+        number_of_pages = int(last_page_elem.get_attribute('href').split('?p=')[-1])
+        pool.put_window(window)
+        return number_of_pages
 
-def get_city_urls(window, url: str) -> List[str]:
-    window.open(url)
-    urls = []
+    def get_products_urls_from_page(page_url: str) -> List[str]:
+        window = pool.pop_window()
+        window.open(page_url)
+        
+        products = window.wait.until(EC.visibility_of_all_elements_located((
+                    By.CLASS_NAME, 'catalog-product__name')))
 
-    while True:
-        elems = window.wait.until(EC.presence_of_all_elements_located(
-            (By.CLASS_NAME, "catalog-product__name")))
+        result = [product.get_attribute('href')+
+                                'characteristics/' for product in products]
+        pool.put_window(window)
+        return result
 
-        urls.extend([elem.get_attribute('href') +
-                    'characteristics/' for elem in elems])
+    def get_product_options(product_url: str) -> dict[str,str]:
+        window = pool.pop_window()
+        window.open(product_url)
 
-        next_page = window.wait.until(EC.visibility_of_element_located((
-            By.CLASS_NAME, 'pagination-widget__page-link_next')))
-        if 'pagination-widget__page-link_disabled' in next_page.get_attribute("class"):
-            break
-        else:
-            window.driver.get(next_page.get_attribute('href'))
+        options = window.wait.until(EC.visibility_of_all_elements_located(
+            (By.CLASS_NAME, 'product-characteristics__spec')))
 
-    return urls
+        product_options = {}
+        for option in options:
+            name = option.find_element(
+                by=By.CLASS_NAME, value='product-characteristics__spec-title').text
+            value = option.find_element(
+                by=By.CLASS_NAME, value='product-characteristics__spec-value').text
+            product_options[name] = value
+        pool.put_window(window)
+        return product_options
 
+    return get_number_of_pages, get_products_urls_from_page, get_product_options
 
-@timing_val
-def gen_next(gen):
-    result = []
-    while True:
-        try:
-            result.append(next(gen))
-        except StopIteration:
-            break
-    return result
-
-
-def parse_data(pool, place: str):
-    window = pool.pop_window()
-    window.open(URL)
-    window.set_place(place.split('___'))
-    results = []
-    while True:
-        try:
-            show_more_button = window.driver.find_element(
-                By.CSS_SELECTOR, '#products-list-pagination > button')
-            show_more_button.click()
-        except NoSuchElementException:
-            break
-        except:
-            pass
-
-    elems = window.driver.find_elements(
-        By.CLASS_NAME, "catalog-product__name")
-
-    results.extend([elem.get_attribute('href') +
-                    'characteristics/' for elem in elems])
-    pool.put_window(window)
-    yield results
-
-
-@timing_val
-def main():
-
-    with open('cities.json', 'r', encoding='utf-8') as f:
-        places = json.load(f)
-
+def parse_options(url:str)->list[dict[str,str]]:
+    
     pool = WindowsPool()
-    THREAD_COUNT = int(os.environ['NUMBER_OF_PROCESSORS'])
-    gens = [parse_data(pool, place) for place in places]
+    get_number_of_pages, get_products_urls_from_page, get_product_options = init_funcs(pool)
+    pages = [f'{url}?p={i+1}' for i in range(get_number_of_pages(url))]
+    print('Got pages')
 
     with ThreadPoolExecutor(THREAD_COUNT) as executor:
-        city_data_generator = executor.map(gen_next, gens)
+        gen_product_urls = executor.map(get_products_urls_from_page, pages)
+    
+    products_url = []
+    for product_url in gen_product_urls:
+        products_url.extend(product_url)
+    print('Got links from pages')
 
-    res = []
-    [res.extend(data) for data in city_data_generator]
+    with ThreadPoolExecutor(THREAD_COUNT) as executor:
+        gen_products_options = executor.map(get_product_options, products_url)
 
-    # city_file_path = os.path.join(
-    #     os.getcwd(), f'cities\{city}.json')
-    with open('res.json', 'w', encoding='utf-8') as f:
-        json.dump(res, f, ensure_ascii=False, indent=4)
+    products = []
+    for product_options in gen_products_options:
+        products.append(product_options)
+    print('Got product options')
     del pool
-
+    return products
 
 if __name__ == '__main__':
-    main()
+    url = 'https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/?stock=now-today-tomorrow-later-out_of_stock'
+    products = parse_options(url)
+    print('')

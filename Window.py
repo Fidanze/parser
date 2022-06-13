@@ -16,7 +16,7 @@ class Window():
         self.driver = webdriver.Chrome(options=self.options)
         self.driver.maximize_window()
 
-        self.wait = WebDriverWait(self.driver, 20)
+        self.wait = WebDriverWait(self.driver, 120)
         self.place: List[str] | None = None
 
     def open(self, url: str):
