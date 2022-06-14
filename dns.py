@@ -1,16 +1,14 @@
 import time
 import os
 from concurrent.futures import ThreadPoolExecutor
-import json
 from typing import List
-from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from WindowsPool import WindowsPool
-from Window import Window
 
 
 THREAD_COUNT = int(os.environ['NUMBER_OF_PROCESSORS'])
+
 
 def timing_val(func):
     def wrapper(*arg, **kw):
@@ -21,28 +19,51 @@ def timing_val(func):
         return res
     return wrapper
 
-def init_funcs(pool:WindowsPool):
+
+def init_funcs(pool: WindowsPool):
     def get_number_of_pages(url: str) -> int:
         window = pool.pop_window()
         window.open(url)
-        last_page_elem = window.wait.until(EC.visibility_of_element_located((By.CLASS_NAME, 'pagination-widget__page-link_last')))
-        number_of_pages = int(last_page_elem.get_attribute('href').split('?p=')[-1])
+        last_page_elem = window.wait.until(EC.visibility_of_element_located(
+            (By.CLASS_NAME, 'pagination-widget__page-link_last')))
+        number_of_pages = int(
+            last_page_elem.get_attribute('href').split('?p=')[-1])
         pool.put_window(window)
         return number_of_pages
 
-    def get_products_urls_from_page(page_url: str) -> List[str]:
+    def get_product_urls_from_page(page_url: str) -> List[str]:
         window = pool.pop_window()
         window.open(page_url)
-        
-        products = window.wait.until(EC.visibility_of_all_elements_located((
-                    By.CLASS_NAME, 'catalog-product__name')))
 
-        result = [product.get_attribute('href')+
-                                'characteristics/' for product in products]
+        products = window.wait.until(EC.visibility_of_all_elements_located((
+            By.CLASS_NAME, 'catalog-product__name')))
+
+        result = [product.get_attribute('href') +
+                  'characteristics/' for product in products]
         pool.put_window(window)
         return result
 
-    def get_product_options(product_url: str) -> dict[str,str]:
+    def get_availability(page_url: str) -> list[dict[str, str]]:
+        window = pool.pop_window()
+        window.open(page_url)
+
+        products = window.wait.until(EC.visibility_of_all_elements_located((
+            By.CLASS_NAME, 'catalog-product')))
+        results = []
+        time.sleep(10)
+        for product in products:
+            name = product.find_element(
+                By.CLASS_NAME, 'catalog-product__name').get_attribute('href') + 'characteristics/'
+            price = product.find_element(
+                By.CLASS_NAME, 'product-buy__price').text.split('\n')[0]
+            buttons = product.find_elements(By.TAG_NAME, 'button')
+            button = buttons[1].text if len(buttons) == 2 else 'Аналоги'
+            results.append({'name':name,'price': price,
+                             'available': True if button == 'Купить' else False})
+        pool.put_window(window)
+        return results
+
+    def get_product_options(product_url: str) -> dict[str, str]:
         window = pool.pop_window()
         window.open(product_url)
 
@@ -59,18 +80,20 @@ def init_funcs(pool:WindowsPool):
         pool.put_window(window)
         return product_options
 
-    return get_number_of_pages, get_products_urls_from_page, get_product_options
+    return get_number_of_pages, get_product_urls_from_page, get_product_options, get_availability
 
-def parse_options(url:str)->list[dict[str,str]]:
-    
+
+def parse_options(url: str) -> list[dict[str, str]]:
+
     pool = WindowsPool()
-    get_number_of_pages, get_products_urls_from_page, get_product_options = init_funcs(pool)
+    get_number_of_pages, get_products_urls_from_page, get_product_options, _ = init_funcs(
+        pool)
     pages = [f'{url}?p={i+1}' for i in range(get_number_of_pages(url))]
     print('Got pages')
 
     with ThreadPoolExecutor(THREAD_COUNT) as executor:
         gen_product_urls = executor.map(get_products_urls_from_page, pages)
-    
+
     products_url = []
     for product_url in gen_product_urls:
         products_url.extend(product_url)
@@ -86,7 +109,31 @@ def parse_options(url:str)->list[dict[str,str]]:
     del pool
     return products
 
+
+@timing_val
+def parse_availability(url: str) -> list[dict[str, str]]:
+    pool = WindowsPool()
+    get_number_of_pages, _, _, get_availability = init_funcs(
+        pool)
+    pages = [f'{url}?p={i+1}' for i in range(get_number_of_pages(url))]
+    print('Got pages')
+
+    with ThreadPoolExecutor(THREAD_COUNT) as executor:
+        gen_product_availabilities = executor.map(get_availability, pages)
+
+    product_availabilities = [product_availability for product_availabilities in gen_product_availabilities for product_availability in product_availabilities ]
+    print('Got availabilities')
+
+    del pool
+    return product_availabilities
+
+
 if __name__ == '__main__':
+    t1 = time.time()
+    # url = 'https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/'
     url = 'https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/?stock=now-today-tomorrow-later-out_of_stock'
-    products = parse_options(url)
+    product_options = parse_options(url)
+    # product_availability = parse_availability(url)
+    t2 = time.time()
+    print(t2-t1)
     print('')

@@ -10,13 +10,14 @@ class Window():
     def __init__(self) -> None:
         self.options = webdriver.ChromeOptions()
         self.options.add_argument('--ignore-certificate-errors-spki-list')
-        self.options.add_argument("--incognito")
+        self.options.add_argument('--incognito')
         self.options.add_argument('log-level=3')
+        self.options.add_argument('--head-less')
 
         self.driver = webdriver.Chrome(options=self.options)
         self.driver.maximize_window()
 
-        self.wait = WebDriverWait(self.driver, 120)
+        self.wait = WebDriverWait(self.driver, 60)
         self.place: List[str] | None = None
 
     def open(self, url: str):
