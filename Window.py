@@ -23,11 +23,6 @@ class Window():
     def open(self, url: str):
         self.driver.get(url)
 
-    def open_place_menu(self):
-        button = self.wait.until(EC.presence_of_element_located(
-            (By.CLASS_NAME, "city-select__text")))
-        button.click()
-
     def set_place(self, place: List[str]):
         button = self.wait.until(EC.visibility_of_element_located(
             (By.CLASS_NAME, "city-select__text")))
