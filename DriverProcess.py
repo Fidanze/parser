@@ -68,10 +68,9 @@ from typing import List
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from Window import Window
-# from DriverProcess import CustomProcess
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
-NUMBER_OF_PROCESSORS = int(os.environ['NUMBER_OF_PROCESSORS'])*3
+NUMBER_OF_PROCESSORS = int(os.environ['NUMBER_OF_PROCESSORS'])//2
 
 
 def timing_val(func):
@@ -95,7 +94,6 @@ def get_number_of_pages(url: str) -> int:
         last_page_elem.get_attribute('href').split('?p=')[-1])
     return number_of_pages
 
-
 def get_product_urls_from_page(window, page_url: str) -> List[str]:
     window.open(page_url)
     products = window.wait.until(EC.visibility_of_all_elements_located((
@@ -103,7 +101,6 @@ def get_product_urls_from_page(window, page_url: str) -> List[str]:
     result = [product.get_attribute('href') +
               'characteristics/' for product in products]
     return result
-
 
 def get_product_options(window, product_url: str) -> dict[str, str]:
     window.open(product_url)
@@ -118,23 +115,17 @@ def get_product_options(window, product_url: str) -> dict[str, str]:
         product_options[name] = value
     return product_options
 
-
 def get_availability(page_url: str)-> None:
     window = Window()
     window.open(page_url)
-    products = window.wait.until(EC.visibility_of_all_elements_located((
-        By.CLASS_NAME, 'catalog-product')))
     results = []
-    time.sleep(10)
-    for product in products:
-        name = product.find_element(
-            By.CLASS_NAME, 'catalog-product__name').get_attribute('href') + 'characteristics/'
-        price = product.find_element(
-            By.CLASS_NAME, 'product-buy__price').text.split('\n')[0]
-        buttons = product.find_elements(By.TAG_NAME, 'button')
-        button = buttons[1].text if len(buttons) == 2 else 'Аналоги'
-        results.append({'name': name, 'price': price,
-                        'available': True if button == 'Купить' else False})
+    names = window.wait.until(EC.visibility_of_all_elements_located((By.CSS_SELECTOR, 'div.catalog-products.view-simple > div > a')))
+    prices = window.wait.until(EC.visibility_of_all_elements_located((By.CSS_SELECTOR, 'div.catalog-products.view-simple > div > div.product-buy.product-buy_one-line.catalog-product__buy > div > div.product-buy__price')))
+    buttons = window.wait.until(EC.visibility_of_all_elements_located((By.CSS_SELECTOR, 'div.product-buy.product-buy_one-line.catalog-product__buy > button.button-ui.button-ui_white.button-ui_icon.wishlist-btn + button')))
+    for data in zip(names, prices, buttons):
+        # button = buttons[1].text if len(buttons) == 2 else 'Аналоги'
+        results.append({'name': data[0].get_attribute('href') + 'characteristics/', 'price': data[1].text.split('\n')[0],
+                        'available': True if data[2].text == 'Купить' else False})
     #|----------------------------|
     #| not implement yet          |
     #| send_result_to_db(results) |
@@ -145,19 +136,14 @@ def get_availability1(pages: list[str])-> None:
     window = Window()
     for page_url in pages:
         window.open(page_url)
-        products = window.wait.until(EC.visibility_of_all_elements_located((
-            By.CLASS_NAME, 'catalog-product')))
         results = []
-        time.sleep(10)
-        for product in products:
-            name = product.find_element(
-                By.CLASS_NAME, 'catalog-product__name').get_attribute('href') + 'characteristics/'
-            price = product.find_element(
-                By.CLASS_NAME, 'product-buy__price').text.split('\n')[0]
-            buttons = product.find_elements(By.TAG_NAME, 'button')
-            button = buttons[1].text if len(buttons) == 2 else 'Аналоги'
-            results.append({'name': name, 'price': price,
-                            'available': True if button == 'Купить' else False})
+        names = window.wait.until(EC.visibility_of_all_elements_located((By.CSS_SELECTOR, 'div.catalog-products.view-simple > div > a')))
+        prices = window.wait.until(EC.visibility_of_all_elements_located((By.CSS_SELECTOR, 'div.catalog-products.view-simple > div > div.product-buy.product-buy_one-line.catalog-product__buy > div > div.product-buy__price')))
+        buttons = window.wait.until(EC.visibility_of_all_elements_located((By.CSS_SELECTOR, 'div.product-buy.product-buy_one-line.catalog-product__buy > button.button-ui.button-ui_white.button-ui_icon.wishlist-btn + button')))
+        for data in zip(names, prices, buttons):
+            # button = buttons[1].text if len(buttons) == 2 else 'Аналоги'
+            results.append({'name': data[0].get_attribute('href') + 'characteristics/', 'price': data[1].text.split('\n')[0],
+                            'available': True if data[2].text == 'Купить' else False})
         #|----------------------------|
         #| not implement yet          |
         #| send_result_to_db(results) |
@@ -185,40 +171,87 @@ def parse_options(url: str):
         products.append(product_options)
     print('Got product options')
 
-
-
-def parse_availability_thread(url: str):
-    pages = [f'{url}?p={i+1}' for i in range(get_number_of_pages(url))]
-    print('Got pages')
+def parse_availability_thread(pages: list[str]):
+    print('start parse_availability_thread')
     t1 = time.time()
 
     with ThreadPoolExecutor(NUMBER_OF_PROCESSORS) as executor:
-        # executor.map(get_availability, pages)
-        executor.map(get_availability1, chunkify(pages, NUMBER_OF_PROCESSORS))
+        executor.map(get_availability, pages)
     
     t2 = time.time()
+    print('end parse_availability_thread')
     return t2-t1
 
-def parse_availability_process(url: str):
-    pages = [f'{url}?p={i+1}' for i in range(get_number_of_pages(url))]
-    print('Got pages')
+def parse_availability_process(pages: list[str]):
+    print('start parse_availability_process')
     t1 = time.time()
 
     with ProcessPoolExecutor(NUMBER_OF_PROCESSORS) as executor:        
-        # executor.map(get_availability, pages)
+        executor.map(get_availability, pages)
+    
+    t2 = time.time()
+    print('end parse_availability_process')
+    return t2-t1
+
+def parse_availability_thread1(pages: list[str]):
+    print('start parse_availability_thread1')
+    t1 = time.time()
+
+    with ThreadPoolExecutor(NUMBER_OF_PROCESSORS) as executor:
         executor.map(get_availability1, chunkify(pages, NUMBER_OF_PROCESSORS))
     
     t2 = time.time()
+    print('end parse_availability_thread1')
     return t2-t1
 
+def parse_availability_process1(pages: list[str]):
+    print('start parse_availability_process1')
+    t1 = time.time()
+
+    with ProcessPoolExecutor(NUMBER_OF_PROCESSORS) as executor:        
+        executor.map(get_availability1, chunkify(pages, NUMBER_OF_PROCESSORS))
+    
+    t2 = time.time()
+    print('end parse_availability_process1')
+    return t2-t1
 
 if __name__ == '__main__':
-    # url = 'https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/'
-    url = 'https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/?stock=now-today-tomorrow-later-out_of_stock'
-    # product_options = parse_options(url)
-    a = parse_availability_thread(url)
-    b = parse_availability_process(url)
-    print(f'{a}\n{b}')
+    short_url = 'https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/'
+    long_url = 'https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/?stock=now-today-tomorrow-later-out_of_stock'
+    
+    # short_pages = [f'{short_url}?p={i+1}' for i in range(get_number_of_pages(short_url))]
+    long_pages = [f'{long_url}?p={i+1}' for i in range(get_number_of_pages(long_url))]
+    results:list[float] = []
+    
+    # results.append(parse_availability_thread(short_pages))
+    # results.append(parse_availability_process(short_pages))
+    # results.append(parse_availability_thread1(short_pages))
+    # results.append(parse_availability_process1(short_pages))
+    # results.append(parse_availability_thread(long_pages))
+    # results.append(parse_availability_process(long_pages))
+    results.append(parse_availability_thread1(long_pages))
+    results.append(parse_availability_process1(long_pages))
+    results.append('')
+    NUMBER_OF_PROCESSORS = int(os.environ['NUMBER_OF_PROCESSORS'])
+    # results.append(parse_availability_thread(short_pages))
+    # results.append(parse_availability_process(short_pages))
+    # results.append(parse_availability_thread1(short_pages))
+    # results.append(parse_availability_process1(short_pages))
+    # results.append(parse_availability_thread(long_pages))
+    # results.append(parse_availability_process(long_pages))
+    results.append(parse_availability_thread1(long_pages))
+    results.append(parse_availability_process1(long_pages))
+    results.append('')
+    NUMBER_OF_PROCESSORS = int(os.environ['NUMBER_OF_PROCESSORS'])*2
+    # results.append(parse_availability_thread(short_pages))
+    # results.append(parse_availability_process(short_pages))
+    # results.append(parse_availability_thread1(short_pages))
+    # results.append(parse_availability_process1(short_pages))
+    # results.append(parse_availability_thread(long_pages))
+    # results.append(parse_availability_process(long_pages))
+    results.append(parse_availability_thread1(long_pages))
+    results.append(parse_availability_process1(long_pages))
+    print(*results, sep='\n')
     # <-------------------------------------------------------->
     # short url
     # 65.34538650512695 threads   with reopenning browsers
@@ -266,3 +299,65 @@ if __name__ == '__main__':
     # 1) нельзя сказать точно что излишнее увеличение максимального числа потоков/процессов замедляет процесс
     # 2) используя этот компьютер ускорить процесс лишь за счёт увеличения максимального числа потоков/процессов невозможно 
     # 3) на данный момент необходимое время ~ 200 секунд
+
+
+    # 58.53822064399719
+    # 59.16045784950256
+    # 46.70982623100281
+    # 46.249165058135986
+    # 422.93809032440186
+    # 423.917049407959
+    # 232.94992184638977
+    # 239.93709182739258
+    # 36.67730784416199
+    # 37.39177870750427
+    # 38.160741090774536
+    # 38.867026567459106
+    # 271.21772599220276
+    # 267.339852809906
+    # 152.58481550216675
+    # 163.76456713676453
+    # 43.06020259857178
+    # 41.570491313934326
+    # 43.069931983947754
+    # 42.554829120635986
+    # 284.01519322395325
+    # 252.9826889038086
+    # 147.96495747566223
+    # 150.05299353599548
+    # выводы:
+    # нет смысла сильно увеличивать количество потоков/процессов более чем на 2
+    # 8 => 10
+    # 16 => 18
+    # только short urls и без переоткрытия
+    # 8 
+    # 26.278136730194092
+    # 27.682558059692383
+    # 16
+    # 30.844932079315186
+    # 30.094597816467285
+    # 18
+    # 31.233699321746826
+    # 34.372382402420044  
+    # выводы:
+    # нет смысла увеличивать кол-во потоков/процессов больше чем os.environ['NUMBER_OF_PROCESSORS']
+    # изменения алгоритма ожидания цены, названия и наличия ускорили в short urls почти на 50%
+    # проверим long_urls
+    # 8 
+    # 92.71243643760681
+    # 97.38141512870789
+    # 16
+    # 105.71908354759216
+    # 106.78847479820251
+    # 18
+    # 119.3249032497406
+    # 112.92402195930481
+    # выводы:
+    # гипотеза о том что максимум потоков/процессов равен os.environ['NUMBER_OF_PROCESSORS'] подтвердилась
+    # однако необычно то что в этот раз 8 потоков быстрее всех
+    # 8
+    # 97.25979804992676
+    # 92.09092903137207
+    # 16
+    # 114.98018836975098
+    # 108.26393914222717     
